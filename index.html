@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#010302">
+  <meta name="description" content="Separa la voz y el instrumental de cualquier MP3 directamente en tu navegador. Sin subir archivos, sin servidores.">
+  <title>SeparaVoz — Voz e instrumental, en tu navegador</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23010302'/%3E%3Cpath d='M14 34v-4M22 42V22M30 48V16M38 40V24M46 36v-8M54 34v-4' stroke='%2339ff88' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./css/styles.css">
+  <!-- Activa COOP/COEP en GitHub Pages para SharedArrayBuffer (ONNX Runtime) -->
+  <script src="./coi-serviceworker.js"></script>
+  <!-- Codificador MP3 en el navegador -->
+  <script src="./vendor/lame/lame.min.js"></script>
+</head>
+<body>
+  <noscript><div class="noscript">SeparaVoz necesita JavaScript y WebAssembly para procesar el audio en tu navegador.</div></noscript>
+  <div class="ambient" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="SeparaVoz, inicio">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 13v-2M8 17V7M12 20V4M16 16V8M20 14v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <span class="brand-name">Separa<span>Voz</span></span>
+    </a>
+    <nav class="header-nav" aria-label="Navegación">
+      <a href="#como-funciona">Cómo funciona</a>
+      <a href="#preguntas">Preguntas</a>
+      <span class="privacy-pill"><span class="dot"></span> Audio local</span>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow"><span class="spark"></span> Separación por IA · HTDemucs</div>
+      <h1>Separa la voz.<br><em>Quédate con la música.</em></h1>
+      <p class="lede">Sube un MP3 y obtén dos pistas limpias: la voz aislada y el instrumental sin voz. El audio se procesa en tu navegador; nunca se sube a un servidor.</p>
+      <div class="hero-badges" aria-label="Características">
+        <span>100 % en tu navegador</span>
+        <span>MP3 o WAV</span>
+        <span>Sin registro</span>
+      </div>
+    </section>
+
+    <section class="studio" aria-label="Estudio de separación">
+      <div class="panel panel-upload" id="uploadPanel">
+        <div class="panel-head">
+          <span class="step">01</span>
+          <div>
+            <h2>Elige tu canción</h2>
+            <p>MP3, WAV o M4A · hasta 8 minutos</p>
+          </div>
+        </div>
+
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Seleccionar o arrastrar un archivo de audio">
+          <input type="file" id="fileInput" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/*" hidden>
+          <div class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <strong>Arrastra tu MP3 aquí</strong>
+          <span>o <u>haz clic para buscar</u> en tu equipo</span>
+        </div>
+
+        <p class="upload-error" id="uploadError" hidden></p>
+
+        <div class="file-card" id="fileCard" hidden>
+          <canvas id="waveform" class="waveform" width="900" height="120" aria-label="Forma de onda del audio"></canvas>
+          <div class="file-meta">
+            <div class="file-title">
+              <span class="file-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M9 18V5l10-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3Zm10-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <div>
+                <strong id="fileName">—</strong>
+                <span id="fileDetails">—</span>
+              </div>
+            </div>
+            <button class="icon-btn" id="clearFileBtn" type="button" title="Quitar archivo" aria-label="Quitar archivo">✕</button>
+          </div>
+          <audio id="sourceAudio" controls preload="metadata"></audio>
+        </div>
+
+        <div class="upload-actions">
+          <label class="format-field">
+            <span>Formato de salida</span>
+            <select id="formatSelect">
+              <option value="mp3" selected>MP3 · 320 kbps</option>
+              <option value="wav">WAV · 16 bit</option>
+            </select>
+          </label>
+          <button class="primary-btn" id="separateBtn" type="button" disabled>
+            <span class="btn-label">Separar voz e instrumental</span>
+            <span class="btn-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+
+        <p class="model-note" id="modelNote">
+          <span aria-hidden="true">ⓘ</span>
+          La primera vez se descarga el modelo de IA (180 MB). Luego queda en caché y no vuelve a bajarse.
+        </p>
+      </div>
+
+      <div class="panel panel-process" id="processPanel" hidden aria-live="polite">
+        <div class="panel-head">
+          <span class="step">02</span>
+          <div>
+            <h2 id="processTitle">Procesando</h2>
+            <p id="processSubtitle">No cierres esta pestaña</p>
+          </div>
+        </div>
+
+        <div class="stage-list" id="stageList">
+          <div class="stage" data-stage="model">
+            <span class="stage-dot"></span>
+            <div><strong>Modelo de IA</strong><small id="modelStageText">En espera</small></div>
+          </div>
+          <div class="stage" data-stage="separate">
+            <span class="stage-dot"></span>
+            <div><strong>Separación de pistas</strong><small id="separateStageText">En espera</small></div>
+          </div>
+          <div class="stage" data-stage="encode">
+            <span class="stage-dot"></span>
+            <div><strong>Creación de archivos</strong><small id="encodeStageText">En espera</small></div>
+          </div>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-label"><span id="progressLabel">Preparando…</span><span id="progressPercent">0 %</span></div>
+          <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="progress-foot"><span id="progressDetail">—</span><span id="etaText"></span></div>
+        </div>
+
+        <div class="engine-row">
+          <span class="engine-chip" id="engineChip">Comprobando motor…</span>
+          <span class="engine-chip subtle" id="coiChip">Aislamiento…</span>
+        </div>
+
+        <details class="log-wrap">
+          <summary>Registro técnico</summary>
+          <pre id="log" aria-live="off"></pre>
+        </details>
+
+        <div class="error-box" id="errorBox" hidden>
+          <strong id="errorTitle">Algo salió mal</strong>
+          <p id="errorMessage"></p>
+          <p class="error-hint" id="errorHint"></p>
+          <div class="error-actions">
+            <button class="ghost-btn" id="retryBtn" type="button">Volver a intentar</button>
+            <button class="ghost-btn" id="errorResetBtn" type="button">Elegir otra canción</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel panel-results" id="resultsPanel" hidden>
+        <div class="panel-head results-head">
+          <span class="step">03</span>
+          <div>
+            <h2>Listo. Tus dos pistas.</h2>
+            <p id="resultsSubtitle">Escúchalas y descárgalas por separado.</p>
+          </div>
+          <button class="ghost-btn small" id="newFileBtn" type="button">Otra canción</button>
+        </div>
+
+        <div class="result-grid">
+          <article class="result-card vocals">
+            <div class="result-top">
+              <span class="result-tag">VOZ</span>
+              <span class="result-size" id="vocalsSize">—</span>
+            </div>
+            <div class="result-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" stroke="currentColor" stroke-width="1.6"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Voz aislada</h3>
+            <p>La interpretación vocal, separada del acompañamiento.</p>
+            <audio id="vocalsAudio" controls preload="metadata"></audio>
+            <a class="download-btn" id="vocalsDownload" download>
+              <span>Descargar voz</span><span aria-hidden="true">↓</span>
+            </a>
+          </article>
+
+          <article class="result-card instrumental">
+            <div class="result-top">
+              <span class="result-tag">INSTRUMENTAL</span>
+              <span class="result-size" id="instrumentalSize">—</span>
+            </div>
+            <div class="result-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M9 18V5l10-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3Zm10-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h3>Instrumental sin voz</h3>
+            <p>Batería, bajo y el resto de la música, sin la voz.</p>
+            <audio id="instrumentalAudio" controls preload="metadata"></audio>
+            <a class="download-btn" id="instrumentalDownload" download>
+              <span>Descargar instrumental</span><span aria-hidden="true">↓</span>
+            </a>
+          </article>
+        </div>
+
+        <div class="results-actions">
+          <label class="result-format">
+            <span>Formato</span>
+            <select id="resultFormatSelect">
+              <option value="mp3" selected>MP3 320</option>
+              <option value="wav">WAV 16 bit</option>
+            </select>
+          </label>
+          <button class="ghost-btn" id="downloadBothBtn" type="button">Descargar ambas</button>
+          <button class="ghost-btn" id="resetBtn" type="button">Empezar de nuevo</button>
+        </div>
+        <p class="results-note">Consejo: si el resultado tiene artefactos, prueba con un MP3 de mayor calidad o sin mucha reverberación.</p>
+      </div>
+    </section>
+
+    <section class="how" id="como-funciona">
+      <div class="section-heading">
+        <span class="eyebrow"><span class="spark"></span> Cómo funciona</span>
+        <h2>Tres pasos. Cero servidores.</h2>
+      </div>
+      <div class="steps">
+        <article class="step-card">
+          <span class="step-number">01</span>
+          <h3>Sube tu MP3</h3>
+          <p>El archivo se decodifica en memoria, en tu propio equipo. No viaja a internet.</p>
+        </article>
+        <article class="step-card">
+          <span class="step-number">02</span>
+          <h3>La IA separa las fuentes</h3>
+          <p>HTDemucs analiza la mezcla y estima voz, batería, bajo y resto por separado.</p>
+        </article>
+        <article class="step-card">
+          <span class="step-number">03</span>
+          <h3>Descarga las dos pistas</h3>
+          <p>Obtienes la voz aislada y el instrumental completo, listos para karaoke, remix o estudio.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="faq" id="preguntas">
+      <div class="section-heading">
+        <span class="eyebrow"><span class="spark"></span> Preguntas frecuentes</span>
+        <h2>Lo que conviene saber.</h2>
+      </div>
+      <div class="faq-grid">
+        <details>
+          <summary>¿Mis archivos se suben a algún servidor?</summary>
+          <p>No. La decodificación, la separación y la codificación ocurren en tu navegador. Solo se descarga el modelo de IA desde Hugging Face la primera vez.</p>
+        </details>
+        <details>
+          <summary>¿Por qué tarda y por qué pesa 180 MB?</summary>
+          <p>La separación de alta calidad usa una red neuronal grande. El modelo se descarga una vez y se guarda en la caché del navegador. En WebGPU suele tardar entre 1 y 4 minutos por canción; en CPU puede tardar bastante más.</p>
+        </details>
+        <details>
+          <summary>¿Funciona en el móvil?</summary>
+          <p>Puede funcionar en móviles recientes, pero necesita mucha memoria. Para canciones de 3 minutos se recomienda un ordenador con Chrome, Edge o Safari actualizado y WebGPU.</p>
+        </details>
+        <details>
+          <summary>¿Qué calidad tienen los archivos?</summary>
+          <p>Puedes elegir MP3 a 320 kbps o WAV de 16 bits. La separación no es magia: voces muy reverberadas, coros o mezclas monofónicas pueden dejar pequeños restos.</p>
+        </details>
+        <details>
+          <summary>¿Puedo usarlo comercialmente?</summary>
+          <p>La herramienta es tuya, pero los derechos de las canciones no. Asegúrate de tener permiso para usar el audio que proses.</p>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p><strong>SeparaVoz</strong> · Separación local con HTDemucs + ONNX Runtime Web.</p>
+    <p class="credits">Hecho para correr en GitHub Pages. Sin cookies, sin analítica, sin subidas.</p>
+  </footer>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
